@@ -10,8 +10,10 @@ type model struct {
 	puzzleOpened   bool
 	selectedPuzzle int
 	puzzle         puzzles.Puzzle
+	//puzzleSelection grid_select.Model[puzzles.Puzzle]
 	puzzles        []puzzles.Puzzle
 	standaloneMode bool
+	helpOpened     bool
 }
 
 type layout struct {

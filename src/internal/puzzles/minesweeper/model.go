@@ -29,6 +29,7 @@ type keyMap struct {
 	Redraw key.Binding
 	Help   key.Binding
 	Quit   key.Binding
+	Save   key.Binding
 }
 
 type preferences struct {

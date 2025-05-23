@@ -1,0 +1,467 @@
+package main
+
+import (
+	"fmt"
+	"math/rand"
+	"strconv"
+	"strings"
+	"time"
+)
+
+var WorkingMinefield = [][]cell{
+	{
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+	},
+	{
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: true},
+		{isMine: true},
+		{isMine: false},
+		{isMine: false},
+	},
+	{
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: true},
+		{isMine: false},
+		{isMine: true},
+		{isMine: false},
+	},
+	{
+		{isMine: false},
+		{isMine: true},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+	},
+	{
+		{isMine: true},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: true},
+	},
+	{
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+	},
+	{
+		{isMine: true},
+		{isMine: false},
+		{isMine: false},
+		{isMine: true},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+	},
+	{
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: true},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+	},
+	{
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+		{isMine: false},
+	},
+}
+
+func main() {
+	var minefield [][]cell
+	/*
+		prefs := preferences{
+			width:         9,
+			height:        9,
+			numberOfMines: 10,
+		}
+		minefield = createEmptyMinefield(prefs)
+		x := rand.Intn(prefs.width)
+		y := rand.Intn(prefs.height)
+		cursorPos := [2]int{x, y}
+
+		placeMinesSkipCursor(minefield, prefs, cursorPos)*/
+	minefield = WorkingMinefield
+	debugPrintMinefield(minefield, [2]int{3, 4})
+	debugPrintMinefieldActual(minefield, [2]int{3, 4})
+
+	ok := solveMinesweeper(minefield, [2]int{3, 4})
+	//debugPrintMinefield(minefield, [2]int{-1, -1})
+	fmt.Printf("Solved: %v\n", ok)
+}
+
+func createEmptyMinefield(prefs preferences) [][]cell {
+	minefield := make([][]cell, prefs.height)
+
+	for y := range minefield {
+		minefield[y] = make([]cell, prefs.width)
+		for x := range minefield[y] {
+			minefield[y][x] = cell{}
+		}
+	}
+	return minefield
+}
+
+func debugPrintMinefield(minefield [][]cell, cursorPos [2]int) {
+	s := strings.Builder{}
+	for y := range minefield {
+		for x, c := range minefield[y] {
+			if x == cursorPos[0] && y == cursorPos[1] {
+				s.WriteString("C")
+				continue
+			}
+			if c.isMine {
+				s.WriteString("M")
+			} else {
+				s.WriteString("-")
+			}
+		}
+		s.WriteString("\n")
+	}
+	fmt.Println(s.String())
+}
+
+func debugPrintMinefieldActual(minefield [][]cell, cursorPos [2]int) {
+	s := strings.Builder{}
+	for y := range minefield {
+		for x, c := range minefield[y] {
+			if x == cursorPos[0] && y == cursorPos[1] {
+				s.WriteString("C")
+			} else if c.isFlagged {
+				s.WriteString("F")
+			} else if c.isMine {
+				s.WriteString("M")
+			} else if c.isRevealed {
+				s.WriteString(strconv.Itoa(countAdjacentMines(x, y, minefield)))
+			} else {
+				s.WriteString("-")
+			}
+		}
+		s.WriteString("\n")
+	}
+	fmt.Println(s.String())
+}
+
+func placeMinesSkipCursor(minefield [][]cell, prefs preferences, cursorPos [2]int) {
+	if prefs.numberOfMines >= prefs.width*prefs.height {
+		panic(fmt.Sprintf("Too many mines for the given field size: %dx%d with %d mines", prefs.width, prefs.height, prefs.numberOfMines))
+	}
+	if minefield == nil {
+		panic("Minefield is nil")
+	}
+
+	positions := make([][2]int, 0, prefs.width*prefs.height)
+	for y := 0; y < prefs.height; y++ {
+		for x := 0; x < prefs.width; x++ {
+			// don't place mines on the cursor
+			if x == cursorPos[0] && y == cursorPos[1] {
+				continue
+			}
+			// don't place mines around the cursor
+			if (x >= cursorPos[0]-1 && x <= cursorPos[0]+1) && (y >= cursorPos[1]-1 && y <= cursorPos[1]+1) {
+				continue
+			}
+			positions = append(positions, [2]int{x, y})
+		}
+	}
+
+	rand.New(rand.NewSource(time.Now().UnixNano()))
+	rand.Shuffle(len(positions), func(i, j int) { positions[i], positions[j] = positions[j], positions[i] })
+
+	for i := 0; i < prefs.numberOfMines; i++ {
+		x, y := positions[i][0], positions[i][1]
+		minefield[y][x].isMine = true
+	}
+}
+
+func countAdjacentMines(x, y int, minefield [][]cell) int {
+	adj := 0
+	forEachSurroundingCellDo(x, y, minefield, func(x, y int, m [][]cell) {
+		if m[y][x].isMine {
+			adj++
+		}
+	})
+	return adj
+}
+
+func forEachSurroundingCellDo(x, y int, minefield [][]cell, do func(x, y int, m [][]cell)) {
+	w := len(minefield[0])
+	h := len(minefield)
+	for dx := -1; dx <= 1; dx++ {
+		for dy := -1; dy <= 1; dy++ {
+			if (dx == 0 && dy == 0) || x+dx < 0 || x+dx > w-1 || y+dy < 0 || y+dy > h-1 {
+				continue
+			}
+			do(x+dx, y+dy, minefield)
+		}
+	}
+}
+
+func countAdjacentHidden(x, y int, m [][]cell) int {
+	adj := 0
+	forEachSurroundingCellDo(x, y, m, func(x, y int, minefield [][]cell) {
+		if !minefield[y][x].isRevealed && !minefield[y][x].isFlagged {
+			adj++
+		}
+	})
+	return adj
+}
+
+func countAdjacentFlags(x, y int, m [][]cell) int {
+	adj := 0
+	forEachSurroundingCellDo(x, y, m, func(x, y int, minefield [][]cell) {
+		if minefield[y][x].isFlagged {
+			adj++
+		}
+	})
+	return adj
+}
+
+func autoSweep(x, y int, m [][]cell) {
+	forEachSurroundingCellDo(x, y, m, func(x, y int, m [][]cell) {
+		cell := m[y][x]
+		if !cell.isRevealed && !cell.isFlagged {
+			sweep(x, y, m, true, make(Set[point]))
+		}
+	})
+}
+
+func sweep(x, y int, minefield [][]cell, userInitiatedSweep bool, swept Set[point]) {
+	c := minefield[y][x]
+
+	if c.isRevealed && userInitiatedSweep {
+		adjMines := countAdjacentMines(x, y, minefield)
+		adjFlags := countAdjacentFlags(x, y, minefield)
+		if adjFlags >= adjMines {
+			autoSweep(x, y, minefield)
+		}
+		return
+	}
+
+	if c.isMine {
+		if userInitiatedSweep {
+			debugPrintMinefield(minefield, [2]int{-1, -1})
+			panic("Mine was swept!")
+		}
+		return
+	}
+
+	touching := countAdjacentMines(x, y, minefield)
+
+	p := point{x: x, y: y}
+	if touching == 0 && !swept.Has(p) {
+		swept.Add(p)
+		forEachSurroundingCellDo(x, y, minefield, func(x, y int, m [][]cell) {
+			sweep(x, y, m, false, swept)
+		})
+	}
+
+	c.isRevealed = true
+}
+
+/* ----------------------------------------------------------------------
+* Minesweeper solver, used to ensure the generated grids are
+* solvable without having to take risks.
+ */
+func solveMinesweeper(minefield [][]cell, startingPoint [2]int) bool {
+	//minefield[0][0].isMine = true
+	//debugPrintMinefield(minefield, [2]int{-1, -1})
+
+	// If the starting point is a mine, panic
+	if minefield[startingPoint[1]][startingPoint[0]].isMine {
+		panic("Starting point is a mine! Wrong starting point or minefield.")
+	}
+	//minefield[startingPoint[1]][startingPoint[0]]
+	sweep(startingPoint[1], startingPoint[0], minefield, true, make(Set[point]))
+	for {
+		progress := false
+
+		for y := range minefield {
+			for x := range minefield[y] {
+				c := minefield[y][x]
+				if c.isRevealed {
+					adjMines := countAdjacentMines(x, y, minefield)
+					adjFlags := countAdjacentFlags(x, y, minefield)
+					adjHidden := countAdjacentHidden(x, y, minefield)
+
+					// Flag all adjacent hidden cells if the number of adjacent mines equals the number of adjacent flags plus hidden cells
+					if adjMines == adjFlags+adjHidden {
+						forEachSurroundingCellDo(x, y, minefield, func(x, y int, m [][]cell) {
+							if !m[y][x].isRevealed && !m[y][x].isFlagged {
+								m[y][x].isFlagged = true
+								progress = true
+							}
+						})
+					}
+
+					// Reveal all adjacent hidden cells if the number of adjacent flags equals the number of adjacent mines
+					if adjMines == adjFlags {
+						fmt.Printf("Revealing %d hidden cells around (%d, %d)\n", adjHidden, x, y)
+						forEachSurroundingCellDo(x, y, minefield, func(x, y int, m [][]cell) {
+							if !m[y][x].isRevealed && !m[y][x].isFlagged {
+								sweep(x, y, m, true, make(Set[point]))
+								progress = true
+							}
+						})
+					}
+				}
+			}
+		}
+
+		debugPrintMinefieldActual(minefield, startingPoint)
+
+		// If no progress was made, break the loop
+		if !progress {
+			break
+		}
+	}
+
+	debugPrintMinefield(minefield, [2]int{-1, -1})
+
+	// check if there are any unrevealed cells left
+	for y := range minefield {
+		for x := range minefield[y] {
+			if !minefield[y][x].isRevealed && !minefield[y][x].isFlagged {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+/*func testSolver() {
+	prefs := preferences{
+		width:         9,
+		height:        9,
+		numberOfMines: 10,
+	}
+	tries := 0
+
+	for {
+		tries++
+		m := initialModel(prefs)
+		placeMinesSkipCursor(m.minefield, prefs, [2]int{m.cursorX, m.cursorY})
+		sweep(m.cursorX, m.cursorY, &m, true, make(Set[point]))
+		sb1 := strings.Builder{}
+		sb1.WriteString("Trying to solve:\n")
+		sb1.WriteString(writeAsciiMinefield(m))
+
+		sb2 := strings.Builder{}
+		ok := solveMinesweeper(&m)
+
+		if ok {
+			sb2.WriteString("Solved:\n")
+		} else {
+			sb2.WriteString(fmt.Sprintf("Failed to solve: Remaining: %d\n", minesLeft(m)))
+		}
+		sb2.WriteString(debugPrintMinefield(m))
+
+		sb3 := strings.Builder{}
+		if !ok {
+			// reveal cells
+			for y := range m.minefield {
+				for x := range m.minefield[y] {
+					cell := &m.minefield[y][x]
+					if !cell.isRevealed {
+						cell.isRevealed = true
+					}
+				}
+			}
+			sb3.WriteString("Revealed:\n")
+			sb3.WriteString(writeAsciiMinefield(m))
+			sb3.WriteString("\n")
+		}
+
+		println(lipgloss.JoinHorizontal(0, sb1.String(), sb2.String(), sb3.String()))
+
+		if ok {
+			break
+		}
+	}
+
+	fmt.Printf("Solved with %d tries\n", tries)
+}*/
+
+type preferences struct {
+	width         int
+	height        int
+	numberOfMines int
+	isDebug       bool
+	showHelp      bool
+}
+
+type cell struct {
+	isMine     bool
+	isFlagged  bool
+	isRevealed bool
+}
+
+type point struct {
+	x int
+	y int
+}
+
+type Set[T comparable] map[T]struct{}
+
+func (s Set[T]) Has(value T) bool {
+	_, ok := s[value]
+	return ok
+}
+func (s *Set[T]) Add(value T) {
+	(*s)[value] = struct{}{}
+}
+func (s *Set[T]) remove(value T) {
+	delete(*s, value)
+}
+func (s Set[T]) intersection(otherSet Set[T]) []T {
+	result := make([]T, 0)
+	for v := range s {
+		if otherSet.Has(v) {
+			result = append(result, v)
+		}
+	}
+	return result
+}

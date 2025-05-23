@@ -7,12 +7,15 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+type RunFunc func(puzzle Puzzle) error
+
 type Puzzle interface {
-	New() Puzzle
+	New() Puzzle // todo call new with some context like terminal dimensions
 	Init() tea.Cmd
 	View() string
 	Update(msg tea.Msg) (Puzzle, tea.Cmd)
 	Preview() string
+	Name() string
 }
 
 type EmptyPuzzle struct{}
@@ -42,4 +45,9 @@ func (p EmptyPuzzle) Update(msg tea.Msg) (Puzzle, tea.Cmd) {
 
 func (EmptyPuzzle) Preview() string {
 	return components.PlainPuzzlePreview("Empty puzzle \n\n press enter or some shit\n yada yada ya")
+}
+
+// TODO don't just get the name of the type, but also way more metadata
+func (EmptyPuzzle) Name() string {
+	return "Empty puzzle"
 }

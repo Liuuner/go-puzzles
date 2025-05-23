@@ -20,6 +20,7 @@ const (
 	DEFAULT_WIDTH  = 9
 	DEFAULT_HEIGHT = 9
 	DEFAULT_MINES  = 10
+	GAME_NAME      = "minesweeper"
 )
 
 var difficulties = map[string]struct {
@@ -73,6 +74,10 @@ var defaultKeyMap = keyMap{
 		key.WithKeys("Q", "esc", "ctrl+c"),
 		key.WithHelp("Q", "quit"),
 	),
+	Save: key.NewBinding(
+		key.WithKeys("S", "ctrl+s"),
+		key.WithHelp("S", "save game"),
+	),
 }
 
 // ShortHelp returns keybindings to be shown in the mini help view. It's part
@@ -87,8 +92,12 @@ func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Left, k.Right},    // first column
 		{k.Sweep, k.Flag, k.New, k.Redraw}, // first column
-		{k.Help, k.Quit},                   // second column
+		{k.Help, k.Save, k.Quit},           // second column
 	}
+}
+
+func (m Minesweeper) Name() string {
+	return GAME_NAME
 }
 
 func (m Minesweeper) New() puzzles.Puzzle {
@@ -148,6 +157,7 @@ func (m Minesweeper) Init() tea.Cmd {
 	return tea.Batch(
 		m.stopwatch.Init(),
 		tea.SetWindowTitle("Minesweeper"),
+		common.LoadGame(GAME_NAME),
 	)
 }
 
@@ -163,6 +173,14 @@ func (m Minesweeper) Update(msg tea.Msg) (puzzles.Puzzle, tea.Cmd) {
 		// its view as needed.
 		m.screenWidth = msg.Width
 		m.screenHeight = msg.Height
+	case common.LoadGameResponseMsg:
+		if msg.GameName != GAME_NAME {
+			break
+		}
+		if msg.Data == nil {
+			break
+		}
+		m.minefield = decodeTable(msg.Data)
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, defaultKeyMap.Quit):
@@ -188,14 +206,8 @@ func (m Minesweeper) Update(msg tea.Msg) (puzzles.Puzzle, tea.Cmd) {
 				m.cursorX = 0
 			}
 		case key.Matches(msg, defaultKeyMap.New):
-			isDebug := m.prefs.isDebug
-			//y, x := m.cursorY, m.cursorX
-			showHelp := m.prefs.showHelp
-			m = initialModel(m.prefs)
+			m.minefield = createEmptyMinefield(m.prefs)
 			m.isRunning = false
-			m.prefs.isDebug = isDebug
-			//m.cursorY, m.cursorX = y, x
-			m.prefs.showHelp = showHelp
 			break
 		case key.Matches(msg, defaultKeyMap.Sweep):
 			if m.isGameOver {
@@ -207,6 +219,12 @@ func (m Minesweeper) Update(msg tea.Msg) (puzzles.Puzzle, tea.Cmd) {
 				placeMinesSkipCursor(m.minefield, m.prefs, [2]int{m.cursorX, m.cursorY})
 				cmd = m.stopwatch.Start()
 			}
+
+			cursorCell := &m.minefield[m.cursorY][m.cursorX]
+			if cursorCell.isFlagged {
+				break
+			}
+
 			sweep(m.cursorX, m.cursorY, &m, true, make(common.Set[point]))
 
 			if checkDidWin(m) {
@@ -220,15 +238,10 @@ func (m Minesweeper) Update(msg tea.Msg) (puzzles.Puzzle, tea.Cmd) {
 				break
 			}
 			cursorCell := &m.minefield[m.cursorY][m.cursorX]
-			if cursorCell.isRevealed {
-				sweep(m.cursorX, m.cursorY, &m, true, make(common.Set[point]))
-			} else {
-				cursorCell.isFlagged = !cursorCell.isFlagged
-			}
-		//case key.Matches(msg, m.keys.Help):
-		//	m.help.ShowAll = !m.help.ShowAll
-		case msg.String() == "S":
-			solveMinesweeper(&m)
+			cursorCell.isFlagged = !cursorCell.isFlagged
+		case key.Matches(msg, defaultKeyMap.Save):
+			data := encodeTable(m.minefield)
+			cmd = common.SaveGame(GAME_NAME, data)
 		}
 	}
 
@@ -244,20 +257,6 @@ func (m Minesweeper) View() string {
 }
 
 func (m Minesweeper) Preview() string {
-	/*icon := `
-	┌───┬───┬───┐
-	│   │   │   │
-	├───┼───┼───┤
-	│   │   │   │
-	├───┼───┼───┤
-	│   │   │   │
-	└───┴───┴───┘`*/
-	/*icon := `
-	┌───┬───┬───┬───┐
-	│   │   │   │   │
-	├───┼───┼───┼───┤
-	│   │   │   │   │
-	└───┴───┴───┴───┘`*/
 	minefield := [][]string{
 		{"0", "1", "B"},
 		{"2", flagCharacter, " "},
@@ -350,6 +349,10 @@ func placeMinesSkipCursor(minefield [][]cell, prefs preferences, cursorPos [2]in
 		for x := 0; x < prefs.width; x++ {
 			// don't place mines on the cursor
 			if x == cursorPos[0] && y == cursorPos[1] {
+				continue
+			}
+			// don't place mines around the cursor
+			if (x >= cursorPos[0]-1 && x <= cursorPos[0]+1) && (y >= cursorPos[1]-1 && y <= cursorPos[1]+1) {
 				continue
 			}
 			positions = append(positions, [2]int{x, y})

@@ -2,18 +2,18 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"github.com/Liuuner/go-puzzles/src/internal/common"
 	"github.com/Liuuner/go-puzzles/src/internal/components"
 	"github.com/Liuuner/go-puzzles/src/internal/puzzles"
 	"github.com/Liuuner/go-puzzles/src/internal/puzzles/minesweeper"
+	"github.com/Liuuner/go-puzzles/src/internal/style"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/urfave/cli/v3"
 	"log"
+	"math"
 	"os"
-	"slices"
 	"strings"
 )
 
@@ -27,53 +27,7 @@ func Run() {
 		HideHelpCommand:       true,
 		Description:           "A collection of terminal puzzles",
 		Commands: []*cli.Command{
-			{
-				Name:     "minesweeper",
-				Usage:    "Play minesweeper",
-				Aliases:  []string{"ms"},
-				Category: "Games",
-				Action: func(ctx context.Context, cmd *cli.Command) error {
-					return runStandalone(minesweeper.NewWithCmd(cmd))
-				},
-				Flags: []cli.Flag{
-					cli.HelpFlag,
-					&cli.IntFlag{
-						Name:        "width",
-						Aliases:     []string{"w"},
-						Usage:       "Width of the minesweeper field",
-						Required:    false,
-						HideDefault: true,
-					},
-					&cli.IntFlag{
-						Name:        "height",
-						Aliases:     []string{"h"},
-						Usage:       "Height of the minesweeper field",
-						Required:    false,
-						HideDefault: true,
-					},
-					&cli.IntFlag{
-						Name:        "mines",
-						Aliases:     []string{"m"},
-						Usage:       "Number of mines in the field",
-						Required:    false,
-						HideDefault: true,
-					},
-					&cli.StringFlag{
-						Name:        "difficulty",
-						Usage:       "Difficulty level of the minesweeper game (beginner, intermediate, expert)",
-						Aliases:     []string{"d"},
-						Required:    false,
-						HideDefault: true,
-						Validator: func(d string) error {
-							difficulties := []string{"beginner", "intermediate", "expert"}
-							if !slices.Contains(difficulties, d) {
-								return fmt.Errorf("invalid difficulty level: %s, valid levels are: %v", d, difficulties)
-							}
-							return nil
-						},
-					},
-				},
-			},
+			minesweeper.Command(runStandalone),
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			return runDefault()
@@ -86,15 +40,52 @@ func Run() {
 }
 
 func runDefault() error {
+	allPuzzles := []puzzles.Puzzle{
+		minesweeper.Minesweeper{},
+		puzzles.EmptyPuzzle{},
+		puzzles.EmptyPuzzle{},
+
+		puzzles.EmptyPuzzle{},
+		puzzles.EmptyPuzzle{},
+		minesweeper.Minesweeper{},
+
+		puzzles.EmptyPuzzle{},
+		puzzles.EmptyPuzzle{},
+		puzzles.EmptyPuzzle{},
+
+		minesweeper.Minesweeper{},
+		puzzles.EmptyPuzzle{},
+		minesweeper.Minesweeper{},
+		puzzles.EmptyPuzzle{},
+		puzzles.EmptyPuzzle{},
+		minesweeper.Minesweeper{},
+		puzzles.EmptyPuzzle{},
+		puzzles.EmptyPuzzle{},
+		puzzles.EmptyPuzzle{},
+		minesweeper.Minesweeper{},
+		puzzles.EmptyPuzzle{},
+	}
+	/*
+		grid_select.New[puzzles.Puzzle]().
+			Data(allPuzzles).
+			RenderFunc(func(p puzzles.Puzzle, selected bool) string { return p.Preview() }).*/
 	m := model{
-		puzzle:         puzzles.EmptyPuzzle{},
-		puzzleOpened:   false,
+		puzzle:       puzzles.EmptyPuzzle{},
+		puzzleOpened: false,
+		//puzzleSelection: puzzleSelection,
 		selectedPuzzle: 0,
-		puzzles:        []puzzles.Puzzle{minesweeper.Minesweeper{}, puzzles.EmptyPuzzle{}, puzzles.EmptyPuzzle{}, puzzles.EmptyPuzzle{}, puzzles.EmptyPuzzle{}, puzzles.EmptyPuzzle{}, puzzles.EmptyPuzzle{}, puzzles.EmptyPuzzle{}, puzzles.EmptyPuzzle{}},
+		/**/
+		puzzles: allPuzzles,
 		layout: layout{
 			selectionItemsInRow: 1,
 		},
 	}
+	/*
+		puzzleSelection :=
+			grid_select.New[puzzles.Puzzle]().
+				Data(allPuzzles).
+				RenderFunc(func(p puzzles.Puzzle, selected bool) string { return p.Preview() }).
+	*/
 
 	p := tea.NewProgram(m, tea.WithAltScreen() /*, tea.WithMouseCellMotion()*/)
 	if _, err := p.Run(); err != nil {
@@ -137,6 +128,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.puzzle = puzzles.EmptyPuzzle{}
 	}
 
+	// Handling save and load game messages
+	{
+		if msg, ok := msg.(common.SaveGameMsg); ok {
+			err := saveGame(msg.GameName, msg.Data)
+			// TODO not really a good way to handle errors
+			if err != nil {
+				panic(err)
+			}
+		}
+		if msg, ok := msg.(common.LoadGameMsg); ok {
+			data, err := loadGame(msg.GameName)
+			if err != nil {
+				panic(err)
+			}
+
+			return m, common.LoadGameResponse(msg.GameName, data)
+		}
+
+		if msg, ok := msg.(common.LoadGameResponseMsg); ok {
+			if m.puzzle.Name() == msg.GameName {
+				m.puzzle.Update(msg.Data)
+			}
+		}
+	}
+
 	var batch tea.Cmd
 
 	if m.puzzleOpened || m.standaloneMode {
@@ -160,7 +176,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) handleKeyMsg(msg tea.KeyMsg) (model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, common.Hotkeys.Quit):
-		return m, tea.Quit
+		if m.helpOpened {
+			m.helpOpened = false
+		} else {
+			return m, tea.Quit
+		}
 	case key.Matches(msg, common.Hotkeys.Up):
 		newSelected := m.selectedPuzzle - m.layout.selectionItemsInRow
 		if newSelected >= 0 {
@@ -184,6 +204,8 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (model, tea.Cmd) {
 			m.puzzle = m.puzzles[m.selectedPuzzle].New()
 			m.puzzleOpened = true
 		}
+	case key.Matches(msg, common.Hotkeys.Help):
+		m.helpOpened = !m.helpOpened
 	}
 	return m, nil
 }
@@ -196,8 +218,40 @@ func (m model) View() string {
 	header := drawHeader(m)
 
 	puzzleSelection := drawPuzzleSelection(m)
+	puzzleSelection = cropPuzzleSelection(m, puzzleSelection)
 
-	return lipgloss.JoinVertical(lipgloss.Center, header, puzzleSelection)
+	help := ""
+	if m.helpOpened {
+		help = drawHelp()
+	}
+	body := style.Composite(help, puzzleSelection, lipgloss.Center, lipgloss.Center, 0, 0)
+
+	return lipgloss.JoinVertical(lipgloss.Center, header, body)
+}
+
+func drawHelp() string {
+	helpContent := lipgloss.NewStyle().Bold(true).Render("Help") + "\n\n" +
+		"Movement:\n" +
+		hotkeyHelp(common.Hotkeys.Up) + "\n" +
+		hotkeyHelp(common.Hotkeys.Down) + "\n" +
+		hotkeyHelp(common.Hotkeys.Left) + "\n" +
+		hotkeyHelp(common.Hotkeys.Right) + "\n\n" +
+		"Other:\n" +
+		hotkeyHelp(common.Hotkeys.Select) + "\n" +
+		hotkeyHelp(common.Hotkeys.Quit) + "\n" +
+		hotkeyHelp(common.Hotkeys.Help) + "\n\n" +
+		"Press q to quit or esc to close"
+
+	return lipgloss.NewStyle().
+		Width(64).
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("#89b4fa")).
+		PaddingLeft(1).
+		Render(helpContent)
+}
+
+func hotkeyHelp(b key.Binding) string {
+	return b.Help().Key + " " + b.Help().Desc
 }
 
 func (m *model) handleWindowResize(msg tea.WindowSizeMsg) {
@@ -234,7 +288,8 @@ func drawPuzzleSelection(m model) string {
 	}
 
 	for i, p := range m.puzzles {
-		selected := i == m.selectedPuzzle
+		selected := i == m.selectedPuzzle && !m.helpOpened
+		//isInSelectedRow := i/m.layout.selectionItemsInRow == selectedRow
 
 		lineNum := i / m.layout.selectionItemsInRow
 		itemNum := i % m.layout.selectionItemsInRow
@@ -252,15 +307,40 @@ func drawPuzzleSelection(m model) string {
 	return lipgloss.NewStyle().Width(width).Render(sb.String())
 }
 
+func cropPuzzleSelection(m model, puzzleSelection string) string {
+	selectedRow := m.selectedPuzzle / m.layout.selectionItemsInRow // 3
+	//rowAmount := int(math.Ceil(float64(len(m.puzzles)) / float64(m.layout.selectionItemsInRow)))
+
+	maxHeight := m.layout.selectionHeight
+	height := lipgloss.Height(puzzleSelection)
+
+	fullyDisplayedRowsOnScreen := int(math.Floor(float64(maxHeight) / float64(common.Config.SelectionContainerHeight+2))) //3
+
+	offsetTop := 0
+
+	if selectedRow >= fullyDisplayedRowsOnScreen {
+		offsetTop = (selectedRow + 1 - fullyDisplayedRowsOnScreen) * (common.Config.SelectionContainerHeight + 2)
+	}
+	if height-offsetTop < maxHeight {
+		offsetTop = offsetTop - (maxHeight - (fullyDisplayedRowsOnScreen * (common.Config.SelectionContainerHeight + 2))) // 2
+	}
+
+	if height > maxHeight {
+		puzzleSelection = style.TranslateYContainer(offsetTop, maxHeight, puzzleSelection)
+	}
+
+	return puzzleSelection
+}
+
 func buildPuzzleContainer(puzzle puzzles.Puzzle, selected bool) string {
-	style := lipgloss.NewStyle().
+	containerStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		Height(common.Config.SelectionContainerHeight).
 		Width(common.Config.SelectionContainerWidth)
 
 	if selected {
-		style = style.BorderForeground(lipgloss.Color("#89b4fa"))
+		containerStyle = containerStyle.BorderForeground(lipgloss.Color("#89b4fa"))
 	}
 
-	return style.Render(puzzle.Preview())
+	return containerStyle.Render(puzzle.Preview())
 }

@@ -38,7 +38,7 @@ var Hotkeys = HotkeysType{
 		key.WithHelp("?", "toggle help"),
 	),
 	Quit: key.NewBinding(
-		key.WithKeys("Q", "esc", "ctrl+c"),
-		key.WithHelp("Q", "quit"),
+		key.WithKeys("q", "esc"),
+		key.WithHelp("q", "quit"),
 	),
 }
